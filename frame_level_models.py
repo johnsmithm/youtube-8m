@@ -44,7 +44,7 @@ flags.DEFINE_string("video_level_classifier_model", "MoeModel",
                     "Some Frame-Level models can be decomposed into a "
                     "generalized pooling operation followed by a "
                     "classifier layer")
-flags.DEFINE_integer("lstm_cells", 1024, "Number of LSTM cells.")
+flags.DEFINE_integer("lstm_cells", 124, "Number of LSTM cells.")
 flags.DEFINE_integer("lstm_layers", 2, "Number of LSTM layers.")
 
 class FrameLevelLogisticModel(models.BaseModel):
@@ -233,5 +233,77 @@ class LstmModel(models.BaseModel):
                                FLAGS.video_level_classifier_model)
     return aggregated_model().create_model(
         model_input=state,
+        vocab_size=vocab_size,
+        **unused_params)
+
+from tensorflow.contrib import grid_rnn
+
+class LstmModel1(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a seqtoseq model to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    lstm_size = FLAGS.lstm_cells
+    number_of_layers = FLAGS.lstm_layers
+    
+    max_frames = model_input.get_shape().as_list()[1]
+    batch_size = model_input.get_shape().as_list()[0]
+    feature_size = model_input.get_shape().as_list()[2]
+    
+    self.rnn_cell = 'LSTM';
+    
+    if self.rnn_cell == "LSTM":
+                cell = tf.contrib.rnn.LSTMCell(lstm_size, state_is_tuple=True)
+    elif self.rnn_cell == "BasicLSTM":
+                cell = tf.contrib.rnn.BasicLSTMCell(lstm_size,forget_bias=1.0,state_is_tuple=True)
+    elif self.rnn_cell == "GRU":
+                cell = tf.contrib.rnn.GRUCell(lstm_size)
+    elif self.rnn_cell == "LSTMGRID2":
+                cell = tf.contrib.rnn.Grid2LSTMCell(lstm_size, use_peepholes=True,forget_bias=1.0)
+    elif self.rnn_cell == "LSTMGRID":
+                bl = [10]
+                cell = tf.contrib.rnn.GridLSTMCell(lstm_size, use_peepholes=True,forget_bias=1.0,num_frequency_blocks=bl)
+    elif self.rnn_cell == "GRUGRID2":
+                cell = tf.contrib.rnn.Grid2GRUCell(lstm_size)
+
+    ## Batch normalize the input
+    stacked_lstm = tf.contrib.rnn.MultiRNNCell(
+            [
+                cell
+                for _ in range(number_of_layers)
+                ],
+            state_is_tuple=(self.rnn_cell[-4:] == "LSTM"))
+
+    loss = 0.0
+    with tf.variable_scope("RNN"):
+      outputs, state = tf.nn.dynamic_rnn(stacked_lstm, model_input,
+                                         sequence_length=num_frames,
+                                         dtype=tf.float32)
+    #
+    out_reshaped = tf.reshape(outputs,[-1,lstm_size])
+    
+    output_fc = slim.fully_connected(
+        out_reshaped, lstm_size, activation_fn=tf.tanh,
+        weights_regularizer=slim.l2_regularizer(1e-8))
+    
+    output_fc_reshaped = tf.reshape(output_fc,[-1, max_frames, lstm_size],'output_fc_reshaped')
+    logits = tf.reduce_sum(output_fc_reshaped, 1)
+    
+    aggregated_model = getattr(video_level_models,
+                               FLAGS.video_level_classifier_model)
+    return aggregated_model().create_model(
+        model_input=logits,
         vocab_size=vocab_size,
         **unused_params)
