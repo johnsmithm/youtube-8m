@@ -307,6 +307,7 @@ class LstmModel1(models.BaseModel):
         vocab_size=vocab_size,
         **unused_params)
 
+
 import util_conv
 
 class Conv3DModel(models.BaseModel):
@@ -349,3 +350,4 @@ class Conv3DModel(models.BaseModel):
             model_input=flaten,
             vocab_size=vocab_size,
             **unused_params)
+
