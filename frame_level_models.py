@@ -312,7 +312,7 @@ import util_conv
 
 class Conv3DModel(models.BaseModel):
 
-  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+  def create_model(self, model_input, vocab_size, num_frames, is_training=True, **unused_params):
     """Creates a model which uses a seqtoseq model to represent the video.
 
     Args:
@@ -338,11 +338,15 @@ class Conv3DModel(models.BaseModel):
         conv1 = util_conv.convLayer(model_input1,   32, size_window=[5,5], keep_prob=None, maxPool=[4,4], scopeN="l1")
         conv2 = util_conv.convLayer(conv1,          64, size_window=[4,4], keep_prob=None, maxPool=[3,3], scopeN="l2")
         conv3 = util_conv.convLayer(conv2,         124, size_window=[3,3], keep_prob=None, maxPool=[3,3], scopeN="l3")
+        conv4 = util_conv.convLayer(conv3,         256, size_window=[2,2], keep_prob=None, maxPool=[2,2], scopeN="l4")
+        conv5 = util_conv.convLayer(conv4,         512, size_window=[2,2], keep_prob=None, maxPool=[2,2], scopeN="l5")
     
-        max_frames = conv3.get_shape().as_list()[1]
-        feature_size = conv3.get_shape().as_list()[2]  
+        max_frames = conv5.get_shape().as_list()[1]
+        feature_size = conv5.get_shape().as_list()[2]  
+        out_chanels = conv5.get_shape().as_list()[3]  
+        print(conv5.get_shape().as_list())
         
-        flaten = tf.reshape(conv3,[-1, max_frames*feature_size*124])
+        flaten = tf.reshape(conv5,[-1, max_frames*feature_size*out_chanels])
     
         aggregated_model = getattr(video_level_models,
                                    FLAGS.video_level_classifier_model)
