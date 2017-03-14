@@ -306,3 +306,46 @@ class LstmModel1(models.BaseModel):
         model_input=logits,
         vocab_size=vocab_size,
         **unused_params)
+
+import util_conv
+
+class Conv3DModel(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+    """Creates a model which uses a seqtoseq model to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    
+    
+    
+    
+    with tf.variable_scope("con3d"):
+        model_input1 = tf.expand_dims(model_input, -1)           
+        
+        
+        conv1 = util_conv.convLayer(model_input1,   32, size_window=[5,5], keep_prob=None, maxPool=[4,4], scopeN="l1")
+        conv2 = util_conv.convLayer(conv1,          64, size_window=[4,4], keep_prob=None, maxPool=[3,3], scopeN="l2")
+        conv3 = util_conv.convLayer(conv2,         124, size_window=[3,3], keep_prob=None, maxPool=[3,3], scopeN="l3")
+    
+        max_frames = conv3.get_shape().as_list()[1]
+        feature_size = conv3.get_shape().as_list()[2]  
+        
+        flaten = tf.reshape(conv3,[-1, max_frames*feature_size*124])
+    
+        aggregated_model = getattr(video_level_models,
+                                   FLAGS.video_level_classifier_model)
+        return aggregated_model().create_model(
+            model_input=flaten,
+            vocab_size=vocab_size,
+            **unused_params)
