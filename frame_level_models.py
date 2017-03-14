@@ -335,18 +335,20 @@ class Conv3DModel(models.BaseModel):
         model_input1 = tf.expand_dims(model_input, -1)           
         
         
-        conv1 = util_conv.convLayer(model_input1,   32, size_window=[5,5], keep_prob=None, maxPool=[4,4], scopeN="l1")
-        conv2 = util_conv.convLayer(conv1,          64, size_window=[4,4], keep_prob=None, maxPool=[3,3], scopeN="l2")
+        conv1 = util_conv.convLayer(model_input1,   32, size_window=[5,5], keep_prob=None, maxPool=[5,5], scopeN="l1")
+        conv2 = util_conv.convLayer(conv1,          64, size_window=[4,4], keep_prob=None, maxPool=[3,4], scopeN="l2")
         conv3 = util_conv.convLayer(conv2,         124, size_window=[3,3], keep_prob=None, maxPool=[3,3], scopeN="l3")
-        conv4 = util_conv.convLayer(conv3,         256, size_window=[2,2], keep_prob=None, maxPool=[2,2], scopeN="l4")
-        conv5 = util_conv.convLayer(conv4,         512, size_window=[2,2], keep_prob=None, maxPool=[2,2], scopeN="l5")
+        conv4 = util_conv.convLayer(conv3,         256, size_window=[3,3], keep_prob=None, maxPool=[2,3], scopeN="l4")
+        conv5 = util_conv.convLayer(conv4,         512, size_window=[2,3], keep_prob=None, maxPool=[2,3], scopeN="l5")
+        #print(conv5.get_shape().as_list())
+        conv6 = util_conv.convLayer(conv5,         1024, size_window=[2,3], keep_prob=None, maxPool=[2,3], scopeN="l6")
     
-        max_frames = conv5.get_shape().as_list()[1]
-        feature_size = conv5.get_shape().as_list()[2]  
-        out_chanels = conv5.get_shape().as_list()[3]  
-        print(conv5.get_shape().as_list())
+        max_frames = conv6.get_shape().as_list()[1]
+        feature_size = conv6.get_shape().as_list()[2]  
+        out_chanels = conv6.get_shape().as_list()[3]  
+        #print(conv6.get_shape().as_list())
         
-        flaten = tf.reshape(conv5,[-1, max_frames*feature_size*out_chanels])
+        flaten = tf.reshape(conv6,[-1, max_frames*feature_size*out_chanels])
     
         aggregated_model = getattr(video_level_models,
                                    FLAGS.video_level_classifier_model)
