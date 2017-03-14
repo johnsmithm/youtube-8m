@@ -241,11 +241,13 @@ def build_graph(reader,
   model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
 
   with tf.name_scope("model"):
+    is_training = tf.placeholder_with_default(True,[])
     result = model.create_model(
         model_input,
         num_frames=num_frames,
         vocab_size=reader.num_classes,
-        labels=labels_batch)
+        labels=labels_batch,
+        is_training=is_training)
 
     for variable in slim.get_model_variables():
       tf.summary.histogram(variable.op.name, variable)
@@ -296,6 +298,7 @@ def build_graph(reader,
     tf.add_to_collection("num_frames", num_frames)
     tf.add_to_collection("labels", tf.cast(labels_batch, tf.float32))
     tf.add_to_collection("train_op", train_op)
+    tf.add_to_collection("is_training", is_training)
 
 
 class Trainer(object):
