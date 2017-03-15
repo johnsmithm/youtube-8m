@@ -333,22 +333,22 @@ class Conv3DModel(models.BaseModel):
     
     with tf.variable_scope("con3d"):
         model_input1 = tf.expand_dims(model_input, -1)           
-        
-        
-        conv1 = util_conv.convLayer(model_input1,   32, size_window=[5,5], keep_prob=None, maxPool=[5,5], scopeN="l1")
-        conv2 = util_conv.convLayer(conv1,          64, size_window=[4,4], keep_prob=None, maxPool=[3,4], scopeN="l2")
-        conv3 = util_conv.convLayer(conv2,         124, size_window=[3,3], keep_prob=None, maxPool=[3,3], scopeN="l3")
-        conv4 = util_conv.convLayer(conv3,         256, size_window=[3,3], keep_prob=None, maxPool=[2,3], scopeN="l4")
-        conv5 = util_conv.convLayer(conv4,         512, size_window=[2,3], keep_prob=None, maxPool=[2,3], scopeN="l5")
-        #print(conv5.get_shape().as_list())
-        conv6 = util_conv.convLayer(conv5,         1024, size_window=[2,3], keep_prob=None, maxPool=[2,3], scopeN="l6")
+        conv = {"conv0":model_input1}
+        layers = 6
+        for i in range(layers):
+            conv["conv{}".format(i+1)] = util_conv.convLayer(conv["conv{}".format(i)],   
+                                                           ((i)*2)+2, 
+                                                           size_window=[2,2], 
+                                                           keep_prob=None, 
+                                                           maxPool=[2,2], 
+                                                           scopeN="l{}".format(i))
     
-        max_frames = conv6.get_shape().as_list()[1]
-        feature_size = conv6.get_shape().as_list()[2]  
-        out_chanels = conv6.get_shape().as_list()[3]  
-        #print(conv6.get_shape().as_list())
+        max_frames = conv["conv{}".format(layers)].get_shape().as_list()[1]
+        feature_size = conv["conv{}".format(layers)].get_shape().as_list()[2]  
+        out_chanels = conv["conv{}".format(layers)].get_shape().as_list()[3]  
+        print(conv["conv{}".format(layers)].get_shape().as_list())
         
-        flaten = tf.reshape(conv6,[-1, max_frames*feature_size*out_chanels])
+        flaten = tf.reshape(conv["conv{}".format(layers)],[-1, max_frames*feature_size*out_chanels])
     
         aggregated_model = getattr(video_level_models,
                                    FLAGS.video_level_classifier_model)
@@ -356,4 +356,60 @@ class Conv3DModel(models.BaseModel):
             model_input=flaten,
             vocab_size=vocab_size,
             **unused_params)
+    
+class Conv3DModelSlim(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, is_training=True, **unused_params):
+    """Creates a model which uses a seqtoseq model to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    
+    
+    
+    
+    batch_norm_params = {'is_training': is_training, 'decay': 0.9, 'updates_collections': None}
+    with slim.arg_scope([slim.conv2d, slim.fully_connected],
+                            normalizer_fn=slim.batch_norm,
+                            normalizer_params=batch_norm_params):
+            x = tf.expand_dims(model_input, -1)
+
+            # For slim.conv2d, default argument values are like
+            # normalizer_fn = None, normalizer_params = None, <== slim.arg_scope changes these arguments
+            # padding='SAME', activation_fn=nn.relu,
+            # weights_initializer = initializers.xavier_initializer(),
+            # biases_initializer = init_ops.zeros_initializer,
+            net = slim.conv2d(x, 32, [5, 5], scope='conv1')
+            net = slim.max_pool2d(net, [2, 2], scope='pool1')
+            net = slim.conv2d(net, 64, [5, 5], scope='conv2')
+            net = slim.max_pool2d(net, [2, 2], scope='pool2')
+            net = slim.flatten(net, scope='flatten3')
+
+            # For slim.fully_connected, default argument values are like
+            # activation_fn = nn.relu,
+            # normalizer_fn = None, normalizer_params = None, <== slim.arg_scope changes these arguments
+            # weights_initializer = initializers.xavier_initializer(),
+            # biases_initializer = init_ops.zeros_initializer,
+            #net = slim.fully_connected(net, 1024, scope='fc3')
+            #net = slim.dropout(net, is_training=is_training, scope='dropout3')  # 0.5 by default
+            #outputs = slim.fully_connected(net, self.num_classes, activation_fn=None, normalizer_fn=None, scope='fco')
+        
+            
+
+            aggregated_model = getattr(video_level_models,
+                                       FLAGS.video_level_classifier_model)
+            return aggregated_model().create_model(
+                model_input=net,
+                vocab_size=vocab_size,
+                **unused_params)
 

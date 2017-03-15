@@ -125,7 +125,6 @@ def inference(reader, train_dir, data_pattern, out_file_location, batch_size, to
     input_tensor = tf.get_collection("input_batch_raw")[0]
     num_frames_tensor = tf.get_collection("num_frames")[0]
     predictions_tensor = tf.get_collection("predictions")[0]
-    is_training = tf.get_collection("is_training")[0]
 
     # Workaround for num_epochs issue.
     def set_up_init_ops(variables):
@@ -149,7 +148,7 @@ def inference(reader, train_dir, data_pattern, out_file_location, batch_size, to
     try:
       while not coord.should_stop():
           video_id_batch_val, video_batch_val,num_frames_batch_val = sess.run([video_id_batch, video_batch, num_frames_batch])
-          predictions_val, = sess.run([predictions_tensor], feed_dict={input_tensor: video_batch_val, num_frames_tensor: num_frames_batch_val,is_training:False})
+          predictions_val, = sess.run([predictions_tensor], feed_dict={input_tensor: video_batch_val, num_frames_tensor: num_frames_batch_val})
           now = time.time()
           num_examples_processed += len(video_batch_val)
           num_classes = predictions_val.shape[1]
