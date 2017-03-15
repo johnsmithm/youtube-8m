@@ -239,7 +239,7 @@ from tensorflow.contrib import grid_rnn
 
 class LstmModel1(models.BaseModel):
 
-  def create_model(self, model_input, vocab_size, num_frames, **unused_params):
+  def create_model(self, model_input, vocab_size, num_frames, is_training=True, **unused_params):
     """Creates a model which uses a seqtoseq model to represent the video.
 
     Args:
@@ -276,6 +276,9 @@ class LstmModel1(models.BaseModel):
                 cell = tf.contrib.rnn.GridLSTMCell(lstm_size, use_peepholes=True,forget_bias=1.0,num_frequency_blocks=bl)
     elif self.rnn_cell == "GRUGRID2":
                 cell = tf.contrib.rnn.Grid2GRUCell(lstm_size)
+            
+    if is_training:
+        cell = tf.contrib.rnn.DropoutWrapper(cell=cell, output_keep_prob=0.7)
 
     ## Batch normalize the input
     stacked_lstm = tf.contrib.rnn.MultiRNNCell(
@@ -290,20 +293,11 @@ class LstmModel1(models.BaseModel):
       outputs, state = tf.nn.dynamic_rnn(stacked_lstm, model_input,
                                          sequence_length=num_frames,
                                          dtype=tf.float32)
-    #
-    out_reshaped = tf.reshape(outputs,[-1,lstm_size])
-    
-    output_fc = slim.fully_connected(
-        out_reshaped, lstm_size, activation_fn=tf.tanh,
-        weights_regularizer=slim.l2_regularizer(1e-8))
-    
-    output_fc_reshaped = tf.reshape(output_fc,[-1, max_frames, lstm_size],'output_fc_reshaped')
-    logits = tf.reduce_sum(output_fc_reshaped, 1)
     
     aggregated_model = getattr(video_level_models,
                                FLAGS.video_level_classifier_model)
     return aggregated_model().create_model(
-        model_input=logits,
+        model_input=(state[0][0] if self.rnn_cell[-4:] == "LSTM" else state),
         vocab_size=vocab_size,
         **unused_params)
 
