@@ -231,7 +231,7 @@ class LstmModel(models.BaseModel):
     aggregated_model = getattr(video_level_models,
                                FLAGS.video_level_classifier_model)
     return aggregated_model().create_model(
-        model_input=state,
+        model_input=state[0],
         vocab_size=vocab_size,
         **unused_params)
 
@@ -407,3 +407,138 @@ class Conv3DModelSlim(models.BaseModel):
                 vocab_size=vocab_size,
                 **unused_params)
 
+class Seq2seq(models.BaseModel):
+
+  def create_model(self, model_input, vocab_size, num_frames, is_training=True, **unused_params):
+    """Creates a model which uses a seqtoseq model to represent the video.
+
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+    if True:
+        self.dim_image = dim_image= model_input.get_shape().as_list()[2]
+        self.n_words = n_words =  vocab_size
+        self.dim_hidden = dim_hidden = FLAGS.lstm_cells
+        self.batch_size = tf.shape(model_input)[0]
+        self.n_lstm_steps = n_lstm_steps=20
+        self.drop_out_rate =drop_out_rate= 0.4
+        bias_init_vector = None
+        n_caption_step = 20#model_input.get_shape().as_list()[1]
+
+        self.Wemb = tf.get_variable( 'Wemb',[n_words, dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+
+        self.lstm3 = tf.contrib.rnn.LSTMCell(self.dim_hidden,
+            use_peepholes = True, state_is_tuple = True)
+        if is_training:
+            self.lstm3_dropout = tf.contrib.rnn.DropoutWrapper(self.lstm3,output_keep_prob=1 - self.drop_out_rate)
+        else:
+            self.lstm3_dropout = self.lstm3
+        
+        self.lstm31 = tf.contrib.rnn.LSTMCell(self.dim_hidden,
+            use_peepholes = True, state_is_tuple = True)
+        if is_training:
+            self.lstm3_dropout1 = tf.contrib.rnn.DropoutWrapper(self.lstm31,output_keep_prob=1 - self.drop_out_rate)
+        else:
+            self.lstm3_dropout1 = self.lstm31
+        self.encode_image_W = tf.get_variable( 'encode_image_W',[dim_image, dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+        self.encode_image_b = tf.get_variable('encode_image_b',[dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+        self.embed_att_w = tf.get_variable( 'embed_att_w',[dim_hidden, 1],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+        self.embed_att_Wa = tf.get_variable( 'embed_att_Wa',[dim_hidden, dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+        self.embed_att_Ua = tf.get_variable( 'embed_att_Ua',[dim_hidden, dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+        self.embed_att_ba = tf.get_variable( 'embed_att_ba',[dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+
+        self.embed_word_W = tf.get_variable('embed_word_W',[dim_hidden, n_words],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(n_words)))
+        if bias_init_vector is not None:
+             self.embed_word_b = tf.Variable(bias_init_vector.astype(np.float32), name='embed_word_b')
+        else:
+            self.embed_word_b = tf.get_variable( 'embed_word_b',[n_words],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(n_words)))
+
+        self.embed_nn_Wp = tf.get_variable( 'embed_nn_Wp',[3*dim_hidden, dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+        self.embed_nn_bp = tf.get_variable('embed_nn_bp',[dim_hidden],
+                                          initializer = 
+                                           tf.random_normal_initializer(stddev=1 / math.sqrt(dim_hidden)))
+        
+        #print(model_input.get_shape().as_list())
+        num_frames = tf.cast(tf.expand_dims(num_frames, 1), tf.float32)
+        video = utils.SampleRandomFrames(model_input, num_frames, n_lstm_steps)
+        #print(video.get_shape().as_list())
+        video_flat = tf.reshape(video, [-1, self.dim_image]) # (b x n) x d
+        image_emb = tf.nn.xw_plus_b( video_flat, self.encode_image_W, self.encode_image_b) # (b x n) x h
+        image_emb = tf.reshape(image_emb, [self.batch_size, self.n_lstm_steps, self.dim_hidden]) # b x n x h
+        image_emb = tf.transpose(image_emb, [1,0,2]) # n x b x h
+
+        state1 = self.lstm3.zero_state(self.batch_size, dtype=tf.float32)#tf.zeros([self.batch_size, self.lstm3.state_size]) # b x s
+        h_prev = tf.zeros([self.batch_size, self.dim_hidden]) # b x h
+        
+        state11 = self.lstm31.zero_state(self.batch_size, dtype=tf.float32)# # b x s
+        h_prev1 = tf.zeros([self.batch_size, self.dim_hidden]) # b x h
+
+        loss_caption = 0.0
+        
+        probs = []
+
+        current_embed = tf.zeros([self.batch_size, self.dim_hidden]) # b x h
+        
+        image_part = tf.reshape(image_emb, [-1, self.dim_hidden])
+        image_part = tf.matmul(image_part, self.embed_att_Ua) + self.embed_att_ba
+        image_part = tf.reshape(image_part, [self.n_lstm_steps, self.batch_size, self.dim_hidden])
+        with tf.variable_scope("model") as scope:
+            for i in range(n_caption_step):
+                e = tf.tanh(tf.matmul(h_prev, self.embed_att_Wa) + image_part) # n x b x h
+    #            e = tf.batch_matmul(e, brcst_w)    # unnormalized relevance score 
+                e = tf.reshape(e, [-1, self.dim_hidden])
+                e = tf.matmul(e, self.embed_att_w) # n x b
+                e = tf.reshape(e, [self.n_lstm_steps, self.batch_size])
+    #            e = tf.reduce_sum(e,2) # n x b
+                e_hat_exp = tf.exp(e)#tf.multiply(tf.transpose(video_mask), tf.exp(e)) # n x b 
+                denomin = tf.reduce_sum(e_hat_exp,0) # b
+                denomin = denomin + tf.to_float(tf.equal(denomin, 0))   # regularize denominator
+                alphas = tf.tile(tf.expand_dims(tf.div(e_hat_exp,denomin),2),[1,1,self.dim_hidden]) # n x b x h  # normalize to obtain alpha
+                attention_list = tf.multiply(alphas, image_emb) # n x b x h
+                atten = tf.reduce_sum(attention_list,0) # b x h       #  soft-attention weighted sum
+#                if i > 0: tf.get_variable_scope().reuse_variables()
+                if i > 0: scope.reuse_variables()
+
+                with tf.variable_scope("LSTM3"):
+                    output12, state11 = self.lstm3_dropout1(tf.concat([atten, current_embed], 1), state11 ) # b x h
+                with tf.variable_scope("LSTM31"):    
+                    output1, state1 = self.lstm3_dropout(output12, state1 ) # b x h
+
+                output2 = tf.tanh(tf.nn.xw_plus_b(tf.concat([output1,atten,current_embed], 1), self.embed_nn_Wp, self.embed_nn_bp)) # b x h
+                h_prev = output1 # b x h               
+
+                logit_words = tf.nn.xw_plus_b(output2, self.embed_word_W, self.embed_word_b) # b x w
+                probs.append(logit_words)
+                        
+        tf_probs = tf.stack(probs,0)
+        tf_probs = tf.transpose(tf_probs,[1,0,2])
+        return { 'predictions': tf.nn.softmax(tf.reduce_mean(tf_probs,1))    }
